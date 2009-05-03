@@ -122,8 +122,6 @@
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (let ((symbol-table '((:unknown -1)
-			(:space 32)
-			(:escape 27)
 			(:up 273)
 			(:down 274)
 			(:right 275)
@@ -260,16 +258,29 @@
   (x :uint16)
   (y :uint16))
 
+(defcstruct joy-axis-event
+  (type :uint8)
+  (which :uint8)
+  (axis :uint8)
+  (value :int16))
+
+(defcstruct joy-button-event
+  (type :uint8)
+  (which :uint8)
+  (button :uint8)
+  (state :uint8))
+
+
 (defcunion event
   (type :uint8)
   (active active-event)
   (key keyboard-event)
   (motion motion-event)
   (button button-event)
-  ;;(jaxis joy-axis-event)
+  (jaxis joy-axis-event)
   ;;(jball joy-ball-event)
   ;;(jhat joy-hat-event)
-  ;;(jbutton joy-button-event)
+  (jbutton joy-button-event)
   ;;(resize resize-event)
   ;;(expose expose-event) ; no content
   ;;(quit quit-event) ; no content
@@ -294,19 +305,51 @@
   (/= 0 (mem-aref (%get-key-state (null-pointer)) :uint8 (convert-to-foreign sym 'key-code))))
 
 (defcfun ("SDL_GetModState" get-mod-state) mod)
+(defcfun ("SDL_GetModState" %get-mod-state) :uint8)
 (defcfun ("SDL_SetModState" set-mod-state) :void (mod mod))
+
+(defun modifier? (mod)
+  (/= 0 (logand (%get-mod-state) (foreign-enum-value 'mod mod))))
 
 (defun poll-event ()
   (with-foreign-object (event 'event)
     (when (%poll-event event)
-      (let ((type (foreign-enum-keyword 'event-type (foreign-slot-value event 'event 'type))))
-	(case type
-	  (:keydown (values (sym<-event event) t))
-	  (:keyup (values (sym<-event event) nil))
-	  (:quit (values type nil)))))))
+      (acase (event-type event)
+	(:keydown (values (sym<-event event) t))
+	(:keyup (values (sym<-event event) nil))
+	(:mousemotion (values :mouse-motion (rel-motion<-event event)))
+	(:mousebuttondown (values (mouse-button-keyword event) t))
+	(:mousebuttonup (values (mouse-button-keyword event) nil))
+	(:joybuttondown (values (joy-button-keyword event) t))
+	(:joybuttonup (values (joy-button-keyword event) nil))
+	(t it)))))
+
+(defun mouse-button-keyword (event) (make-keyword (format nil "MOUSE-BUTTON-~D" (button<-event event))))
+(defun joy-button-keyword (event) (make-keyword (format nil "JOY~D-BUTTON-~D" (which<-event event) (button<-event event))))
 
 (defun sym<-event (event)
   (foreign-slot-value (foreign-slot-value event 'keyboard-event 'keysym) 'keysym 'sym))
+
+(defun event-type (event)
+  (foreign-enum-keyword 'event-type (foreign-slot-value event 'event 'type)))
+
+(defun rel-motion<-event (event)
+  (complex (foreign-slot-value event 'motion-event 'xrel)
+	   (- (foreign-slot-value event 'motion-event 'yrel))))
+
+(defun which<-event (event)
+  (foreign-slot-value event
+		      (case (event-type event)
+			((:joybuttonup :joybuttondown) 'joy-button-event)
+			((:joyaxismotion) 'joy-axis-event))
+		      'which))
+
+(defun button<-event (event)
+  (foreign-slot-value event
+		      (case (event-type event)
+			((:mousebuttondown :mousebuttonup) 'button-event)
+			((:joybuttonup :joybuttondown) 'joy-button-event))
+		      'button))
 
 (defcfun ("SDL_GetMouseState" %get-mouse-state) :uint8 (x :pointer) (y :pointer))
 
