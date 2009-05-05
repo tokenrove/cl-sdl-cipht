@@ -68,21 +68,24 @@
   :gl-accelerated-visual
   :gl-swap-control)
 
-
-;; from cl-opengl
-(defun make-bitfield (enum-name attributes)
-  (apply #'logior 0 (mapcar (lambda (x)
-                              (foreign-enum-value enum-name x))
-                            attributes)))
-
-(defcfun ("SDL_SetVideoMode" %set-video-mode) :pointer (width :int) (height :int) (bpp :int) (flags :uint32))
-
-(defun set-video-mode (width height bpp flags)
-  (%set-video-mode width height bpp (if (atom flags) flags (make-bitfield 'video-flags flags))))
-
-(defcfun ("SDL_GL_SwapBuffers" gl-swap-buffers) :void)
-(defcfun ("SDL_GL_GetAttribute" gl-get-attribute) :boolean (attribute gl-attribute) (value :pointer))
-(defcfun ("SDL_GL_SetAttribute" gl-set-attribute) :boolean (attribute gl-attribute) (value :int))
+(defcstruct pixel-format
+  (palette :pointer)
+  (bits-per-pixel :uint8)
+  (bytes-per-pixel :uint8)
+  (r-loss :uint8)
+  (g-loss :uint8)
+  (b-loss :uint8)
+  (a-loss :uint8)
+  (r-shift :uint8)
+  (g-shift :uint8)
+  (b-shift :uint8)
+  (a-shift :uint8)
+  (r-mask :uint32)
+  (g-mask :uint32)
+  (b-mask :uint32)
+  (a-mask :uint32)
+  (colorkey :uint32)
+  (alpha  :uint8))
 
 (defcstruct rect
   (x :int16)
@@ -104,6 +107,33 @@
   (map :pointer)
   (format-version :uint)
   (refcount :int))
+
+
+
+;; from cl-opengl
+(defun make-bitfield (enum-name attributes)
+  (apply #'logior 0 (mapcar (lambda (x) (foreign-enum-value enum-name x)) attributes)))
+(defun expand-video-flags (flags)
+  (if (atom flags) flags (make-bitfield 'video-flags flags)))
+
+(defcfun ("SDL_ListModes" %list-modes) :pointer (format :pointer) (flags :uint32))
+
+(defun list-modes (flags &key (format (null-pointer)))
+  (let ((modes (%list-modes format (expand-video-flags flags))))
+    (if (= -1 (pointer-address modes)) nil
+	(loop for i from 0
+	      for mode = (mem-aref modes :pointer i)
+	      while (and mode (not (null-pointer-p mode)))
+	      collect (with-foreign-slots ((w h) mode rect) (list w h))))))
+
+(defcfun ("SDL_SetVideoMode" %set-video-mode) :pointer (width :int) (height :int) (bpp :int) (flags :uint32))
+
+(defun set-video-mode (width height bpp flags)
+  (%set-video-mode width height bpp (expand-video-flags flags)))
+
+(defcfun ("SDL_GL_SwapBuffers" gl-swap-buffers) :void)
+(defcfun ("SDL_GL_GetAttribute" gl-get-attribute) :boolean (attribute gl-attribute) (value :pointer))
+(defcfun ("SDL_GL_SetAttribute" gl-set-attribute) :boolean (attribute gl-attribute) (value :int))
 
 (defcfun ("SDL_GetVideoSurface" get-video-surface) surface)
 

@@ -4,7 +4,7 @@
   (:use #:cl #:cffi #:anaphora #:alexandria)
   (:export
    #:init #:quit #:with-init
-   #:set-video-mode #:gl-swap-buffers #:gl-set-attribute
+   #:set-video-mode #:gl-swap-buffers #:gl-set-attribute #:list-modes
    #:display-width #:display-height
    #:get-ticks #:delay
    #:pump-events #:poll-event
