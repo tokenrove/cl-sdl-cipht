@@ -112,15 +112,15 @@
 
 ;; from cl-opengl
 (defun make-bitfield (enum-name attributes)
-  (apply #'logior 0 (mapcar (lambda (x) (foreign-enum-value enum-name x)) attributes)))
+  (apply #'logior 0 (mapcar (lambda (x) (if x (foreign-enum-value enum-name x) 0)) attributes)))
 (defun expand-video-flags (flags)
-  (if (atom flags) flags (make-bitfield 'video-flags flags)))
+  (make-bitfield 'video-flags (if (atom flags) (list flags) flags)))
 
 (defcfun ("SDL_ListModes" %list-modes) :pointer (format :pointer) (flags :uint32))
 
 (defun list-modes (flags &key (format (null-pointer)))
   (let ((modes (%list-modes format (expand-video-flags flags))))
-    (if (= -1 (pointer-address modes)) nil
+    (if (= #xffffffff (pointer-address modes)) nil
 	(loop for i from 0
 	      for mode = (mem-aref modes :pointer i)
 	      while (and mode (not (null-pointer-p mode)))
