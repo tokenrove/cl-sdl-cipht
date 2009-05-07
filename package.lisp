@@ -9,6 +9,6 @@
    #:get-ticks #:delay
    #:pump-events #:poll-event
    #:key-pressed? #:get-mouse-state #:warp-mouse
-   #:get-mod-state #:set-mod-state #:modifier?
+   #:get-mod-state #:set-mod-state #:modifier? #:get-simple-mod-state
    #:show-cursor #:hide-cursor
    ))

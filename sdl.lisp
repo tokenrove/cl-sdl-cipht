@@ -338,8 +338,17 @@
 (defcfun ("SDL_GetModState" %get-mod-state) :uint8)
 (defcfun ("SDL_SetModState" set-mod-state) :void (mod mod))
 
-(defun modifier? (mod)
-  (/= 0 (logand (%get-mod-state) (foreign-enum-value 'mod mod))))
+(defun get-simple-mod-state ()
+  (let* ((ctrl (foreign-enum-value 'mod :ctrl))
+	 (alt (foreign-enum-value 'mod :alt))
+	 (shift (foreign-enum-value 'mod :shift))
+	 (m (logand (%get-mod-state) (logior ctrl alt shift))))
+    (aref #(nil :shift :ctrl :ctrl-shift :alt :alt-shift :ctrl-alt :ctrl-alt-shift)
+	  (logior (if (/= 0 (logand m shift)) 1 0)
+		  (if (/= 0 (logand m ctrl)) 2 0)
+		  (if (/= 0 (logand m alt)) 4 0)))))
+
+(defun modifier? (mod) (/= 0 (logand (%get-mod-state) (foreign-enum-value 'mod mod))))
 
 (defun poll-event ()
   (with-foreign-object (event 'event)
