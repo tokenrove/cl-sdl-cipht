@@ -145,12 +145,13 @@
 ;; Keyboard key definitions: 8-bit ISO-8859-1 (Latin 1) encoding is used
 ;; for printable keys (such as A-Z, 0-9 etc), and values above 256
 ;; represent special (non-printable) keys (e.g. F1, Page Up etc).
-(define-foreign-type key-code-type ()
-  ()
-  (:actual-type :int)
-  (:simple-parser key-code))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
+  (define-foreign-type key-code-type ()
+    ()
+    (:actual-type :int)
+    (:simple-parser key-code))
+
   (let ((symbol-table '((:unknown -1)
 			(:up 273)
 			(:down 274)
@@ -201,6 +202,14 @@
 		((symbolp ,value) (ecase ,value
 				    ,@symbol-table))
 		(t ,value)))
+    (defmethod translate-to-foreign (value (type key-code-type))
+      (cl:cond ((characterp value) (char-code value))
+		((symbolp value) (second (find value symbol-table :key #'car)))
+		(t value)))
+    (defmethod translate-from-foreign (value (type key-code-type))
+      (aif (find value symbol-table :key #'second) ;; XXX probably doesn't work where fixnums aren't EQL
+	   (first it)
+	   (code-char value)))
     (defmethod expand-from-foreign (value (type key-code-type))
       `(case ,value
 	 ,@(mapcar #'reverse symbol-table) ;; XXX probably doesn't work where fixnums aren't EQL
@@ -363,7 +372,14 @@
 	(:joybuttonup (values (joy-button-keyword event) nil))
 	(t it)))))
 
-(defun mouse-button-keyword (event) (make-keyword (format nil "MOUSE-BUTTON-~D" (button<-event event))))
+(defun mouse-button-keyword (event)
+  (acase (button<-event event)
+    (1 :mouse-button-left)
+    (2 :mouse-button-middle)
+    (3 :mouse-button-right)
+    (4 :mouse-wheel-up)
+    (5 :mouse-wheel-down)
+    (t (make-keyword (format nil "MOUSE-BUTTON-~D" it)))))
 (defun joy-button-keyword (event) (make-keyword (format nil "JOY~D-BUTTON-~D" (which<-event event) (button<-event event))))
 
 (defun sym<-event (event)
