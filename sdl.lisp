@@ -131,12 +131,13 @@
 (defun set-video-mode (width height bpp flags)
   (%set-video-mode width height bpp (expand-video-flags flags)))
 
+(declaim (inline gl-swap-buffers))
 (defcfun ("SDL_GL_SwapBuffers" gl-swap-buffers) :void)
 (defcfun ("SDL_GL_GetAttribute" gl-get-attribute) :boolean (attribute gl-attribute) (value :pointer))
 (defcfun ("SDL_GL_SetAttribute" gl-set-attribute) :boolean (attribute gl-attribute) (value :int))
 
+(declaim (inline get-video-surface display-width display-height))
 (defcfun ("SDL_GetVideoSurface" get-video-surface) surface)
-
 (defun display-width () (foreign-slot-value (get-video-surface) 'surface 'w))
 (defun display-height () (foreign-slot-value (get-video-surface) 'surface 'h))
 
@@ -327,12 +328,14 @@
   ;;(syswm sys-wm-event)
   )
 
+(declaim (inline pump-events %poll-event))
 (defcfun ("SDL_PumpEvents" pump-events) :void)
 (defcfun ("SDL_PollEvent" %poll-event) :boolean (event :pointer))
 (defcfun ("SDL_EnableKeyRepeat" enable-key-repeat) :boolean (delay :int) (interval :int))
 
 (defun disable-key-repeat () (enable-key-repeat 0 0))
 
+(declaim (inline %get-key-state get-key-state key-pressed?))
 (defcfun ("SDL_GetKeyState" %get-key-state) :pointer (numkeys :pointer))
 
 (defun get-key-state ()
@@ -343,14 +346,17 @@
 (defun key-pressed? (sym)
   (/= 0 (mem-aref (%get-key-state (null-pointer)) :uint8 (convert-to-foreign sym 'key-code))))
 
+(declaim (inline get-mod-state %get-mod-state set-mod-state))
 (defcfun ("SDL_GetModState" get-mod-state) mod)
 (defcfun ("SDL_GetModState" %get-mod-state) :uint8)
 (defcfun ("SDL_SetModState" set-mod-state) :void (mod mod))
 
+(declaim (inline get-simple-mod-state modifier?))
 (defun get-simple-mod-state ()
-  (let* ((ctrl (foreign-enum-value 'mod :ctrl))
-	 (alt (foreign-enum-value 'mod :alt))
-	 (shift (foreign-enum-value 'mod :shift))
+  (declare (optimize speed))
+  (let* ((ctrl (the fixnum (foreign-enum-value 'mod :ctrl)))
+	 (alt (the fixnum (foreign-enum-value 'mod :alt)))
+	 (shift (the fixnum (foreign-enum-value 'mod :shift)))
 	 (m (logand (%get-mod-state) (logior ctrl alt shift))))
     (aref #(nil :shift :ctrl :ctrl-shift :alt :alt-shift :ctrl-alt :ctrl-alt-shift)
 	  (logior (if (/= 0 (logand m shift)) 1 0)
@@ -359,53 +365,39 @@
 
 (defun modifier? (mod) (/= 0 (logand (%get-mod-state) (foreign-enum-value 'mod mod))))
 
-(defun poll-event ()
-  (with-foreign-object (event 'event)
-    (when (%poll-event event)
-      (acase (event-type event)
-	(:keydown (values (sym<-event event) t))
-	(:keyup (values (sym<-event event) nil))
-	(:mousemotion (values :mouse-motion (rel-motion<-event event)))
-	(:mousebuttondown (values (mouse-button-keyword event) t))
-	(:mousebuttonup (values (mouse-button-keyword event) nil))
-	(:joybuttondown (values (joy-button-keyword event) t))
-	(:joybuttonup (values (joy-button-keyword event) nil))
-	(t it)))))
-
+(declaim (inline mouse-button-keyword event-type sym<-event rel-motion<-event button<-event))
 (defun mouse-button-keyword (event)
-  (acase (button<-event event)
+  (case (button<-event event)
     (1 :mouse-button-left)
     (2 :mouse-button-middle)
     (3 :mouse-button-right)
     (4 :mouse-wheel-up)
     (5 :mouse-wheel-down)
-    (t (make-keyword (format nil "MOUSE-BUTTON-~D" it)))))
-(defun joy-button-keyword (event) (make-keyword (format nil "JOY~D-BUTTON-~D" (which<-event event) (button<-event event))))
+    (t :mouse-button-unknown)))
 
-(defun sym<-event (event)
-  (foreign-slot-value (foreign-slot-value event 'keyboard-event 'keysym) 'keysym 'sym))
+(defmacro fsv (object &rest args)
+  (do ((args (rest args) (rest args))
+       (object #1=`(foreign-slot-value ,object ,(first args) ,(second args)) #1#))
+      ((endp (rest args)) object)))
 
-(defun event-type (event)
-  (foreign-enum-keyword 'event-type (foreign-slot-value event 'event 'type)))
+(defun sym<-event (event) (fsv event 'keyboard-event 'keysym 'sym))
+(defun event-type (event) (foreign-enum-keyword 'event-type (fsv event 'event 'type)))
+(defun button<-event (event) (foreign-slot-value event 'button-event 'button))
 
-(defun rel-motion<-event (event)
-  (complex (foreign-slot-value event 'motion-event 'xrel)
-	   (- (foreign-slot-value event 'motion-event 'yrel))))
+(let ((event (foreign-alloc 'event)))
+  (defun poll-event ()
+    (declare (optimize speed))
+    (when (%poll-event event)
+      (acase (event-type event)
+	(:keydown (values (sym<-event event) t))
+	(:keyup (values (sym<-event event) nil))
+	(:mousemotion :mouse-motion)
+	(:mousebuttondown (values (mouse-button-keyword event) t))
+	(:mousebuttonup (values (mouse-button-keyword event) nil))
+	(t it))))
+  (defun inspect-last-event () event))
 
-(defun which<-event (event)
-  (foreign-slot-value event
-		      (case (event-type event)
-			((:joybuttonup :joybuttondown) 'joy-button-event)
-			((:joyaxismotion) 'joy-axis-event))
-		      'which))
-
-(defun button<-event (event)
-  (foreign-slot-value event
-		      (case (event-type event)
-			((:mousebuttondown :mousebuttonup) 'button-event)
-			((:joybuttonup :joybuttondown) 'joy-button-event))
-		      'button))
-
+(declaim (inline %get-mouse-state get-mouse-state %show-cursor warp-mouse))
 (defcfun ("SDL_GetMouseState" %get-mouse-state) :uint8 (x :pointer) (y :pointer))
 
 (defun get-mouse-state ()
@@ -422,5 +414,6 @@
 
 ;;;; TIMER
 
+(declaim (inline get-ticks delay))
 (defcfun ("SDL_GetTicks" get-ticks) :uint32)
 (defcfun ("SDL_Delay" delay) :void (ticks :uint32))
