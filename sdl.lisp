@@ -420,6 +420,15 @@
 
 (defcfun ("SDL_WarpMouse" warp-mouse) :void (x :uint16) (y :uint16))
 
+(defcfun ("SDL_NumJoysticks" num-joysticks) :int)
+(defcfun ("SDL_JoystickName" joystick-name) :string (index :int))
+(defcfun ("SDL_JoystickOpen" joystick-open) :pointer (index :int))
+(defcfun ("SDL_JoystickClose" joystick-close) :void (joystick :pointer))
+(defcfun ("SDL_JoystickUpdate" joystick-update) :void)
+(defcfun ("SDL_JoystickGetAxis" joystick-get-axis) :int16 (joystick :pointer) (axis :int))
+(defcfun ("SDL_JoystickGetButton" joystick-get-button) :boolean (joystick :pointer) (button :int))
+
+
 ;;;; TIMER
 
 (defcfun ("SDL_GetTicks" get-ticks) :uint32)

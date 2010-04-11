@@ -11,4 +11,6 @@
    #:key-pressed? #:get-mouse-state #:warp-mouse
    #:get-mod-state #:set-mod-state #:modifier? #:get-simple-mod-state
    #:show-cursor #:hide-cursor
+   #:num-joysticks #:joystick-name #:joystick-open #:joystick-close #:joystick-update
+   #:joystick-get-axis #:joystick-get-button
    ))
