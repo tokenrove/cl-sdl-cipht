@@ -2,6 +2,8 @@
 (in-package :cipht/sdl)
 
 (define-foreign-library sdl
+  (:unix (:or "libSDL-1.2.so.0" "libSDL"))
+  (:windows "SDL")
   (t (:default "libSDL")))
 (use-foreign-library sdl)
 
@@ -108,18 +110,10 @@
   (format-version :uint)
   (refcount :int))
 
-
-
-;; from cl-opengl
-(defun make-bitfield (enum-name attributes)
-  (apply #'logior 0 (mapcar (lambda (x) (if x (foreign-enum-value enum-name x) 0)) attributes)))
-(defun expand-video-flags (flags)
-  (make-bitfield 'video-flags (if (atom flags) (list flags) flags)))
-
 (defcfun ("SDL_ListModes" %list-modes) :pointer (format :pointer) (flags :uint32))
 
 (defun list-modes (flags &key (format (null-pointer)))
-  (let ((modes (%list-modes format (expand-video-flags flags))))
+  (let ((modes (%list-modes format (expand-enum-flags 'video-flags flags))))
     (if (= #xffffffff (pointer-address modes)) nil
 	(loop for i from 0
 	      for mode = (mem-aref modes :pointer i)
@@ -129,7 +123,7 @@
 (defcfun ("SDL_SetVideoMode" %set-video-mode) :pointer (width :int) (height :int) (bpp :int) (flags :uint32))
 
 (defun set-video-mode (width height bpp flags)
-  (%set-video-mode width height bpp (expand-video-flags flags)))
+  (%set-video-mode width height bpp (expand-enum-flags 'video-flags flags)))
 
 (declaim (inline gl-swap-buffers))
 (defcfun ("SDL_GL_SwapBuffers" gl-swap-buffers) :void)
@@ -208,9 +202,9 @@
 		((symbolp value) (second (find value symbol-table :key #'car)))
 		(t value)))
     (defmethod translate-from-foreign (value (type key-code-type))
-      (aif (find value symbol-table :key #'second) ;; XXX probably doesn't work where fixnums aren't EQL
-	   (first it)
-	   (code-char value)))
+      (if-let (it (find value symbol-table :key #'second)) ;; XXX probably doesn't work where fixnums aren't EQL
+	(first it)
+	(code-char value)))
     (defmethod expand-from-foreign (value (type key-code-type))
       `(case ,value
 	 ,@(mapcar #'reverse symbol-table) ;; XXX probably doesn't work where fixnums aren't EQL
@@ -310,6 +304,33 @@
   (button :uint8)
   (state :uint8))
 
+(defcstruct joy-hat-event
+  (type :uint8)
+  (which :uint8)
+  (hat :uint8)
+  (value :uint8))
+
+(defcstruct joy-ball-event
+  (type :uint8)
+  (which :uint8)
+  (ball :uint8)
+  (xrel :int16)
+  (yrel :int16))
+
+(defcstruct sys-wm-event
+  (type :uint8)
+  (msg :pointer))
+
+(defcstruct user-event
+  (type :uint8)
+  (code :int)
+  (data1 :pointer)
+  (data2 :pointer))
+
+(defcstruct resize-event
+  (type :uint8)
+  (w :int)
+  (h :int))
 
 (defcunion event
   (type :uint8)
@@ -318,21 +339,34 @@
   (motion motion-event)
   (button button-event)
   (jaxis joy-axis-event)
-  ;;(jball joy-ball-event)
-  ;;(jhat joy-hat-event)
+  (jball joy-ball-event)
+  (jhat joy-hat-event)
   (jbutton joy-button-event)
-  ;;(resize resize-event)
+  (resize resize-event)
   ;;(expose expose-event) ; no content
   ;;(quit quit-event) ; no content
-  ;;(user user-event)
-  ;;(syswm sys-wm-event)
-  )
+  (user user-event)
+  (syswm sys-wm-event))
 
-(declaim (inline pump-events %poll-event))
+(declaim (inline pump-events poll-event event-type wait-event event-state))
 (defcfun ("SDL_PumpEvents" pump-events) :void)
-(defcfun ("SDL_PollEvent" %poll-event) :boolean (event :pointer))
-(defcfun ("SDL_EnableKeyRepeat" enable-key-repeat) :boolean (delay :int) (interval :int))
+(defcfun ("SDL_PollEvent" poll-event) :boolean (event :pointer))
+(defcfun ("SDL_WaitEvent" wait-event) :boolean (event :pointer))
+(defcfun ("SDL_EventState" event-state) :uint8 (type :uint8) (state :int))
 
+(defmacro event-loop ((event-var) &body body)
+  `(with-foreign-object (,event-var 'event)
+     (declare (dynamic-extent ,event-var))
+     (block event-loop
+       (loop
+	 (sdl:pump-events)
+	 ,@body
+	   (sdl:gl-swap-buffers)))))
+
+(defun event-type (event)
+  (foreign-enum-keyword 'event-type (foreign-slot-value event 'event 'type) :errorp nil))
+
+(defcfun ("SDL_EnableKeyRepeat" enable-key-repeat) :boolean (delay :int) (interval :int))
 (defun disable-key-repeat () (enable-key-repeat 0 0))
 
 (declaim (inline %get-key-state get-key-state key-pressed?))
@@ -350,52 +384,6 @@
 (defcfun ("SDL_GetModState" get-mod-state) mod)
 (defcfun ("SDL_GetModState" %get-mod-state) :uint8)
 (defcfun ("SDL_SetModState" set-mod-state) :void (mod mod))
-
-(declaim (inline get-simple-mod-state modifier?))
-(defun get-simple-mod-state ()
-  (declare (optimize speed))
-  (let* ((ctrl (the fixnum (foreign-enum-value 'mod :ctrl)))
-	 (alt (the fixnum (foreign-enum-value 'mod :alt)))
-	 (shift (the fixnum (foreign-enum-value 'mod :shift)))
-	 (m (logand (%get-mod-state) (logior ctrl alt shift))))
-    (aref #(nil :shift :ctrl :ctrl-shift :alt :alt-shift :ctrl-alt :ctrl-alt-shift)
-	  (logior (if (/= 0 (logand m shift)) 1 0)
-		  (if (/= 0 (logand m ctrl)) 2 0)
-		  (if (/= 0 (logand m alt)) 4 0)))))
-
-(defun modifier? (mod) (/= 0 (logand (%get-mod-state) (foreign-enum-value 'mod mod))))
-
-(declaim (inline mouse-button-keyword event-type sym<-event rel-motion<-event button<-event))
-(defun mouse-button-keyword (event)
-  (case (button<-event event)
-    (1 :mouse-button-left)
-    (2 :mouse-button-middle)
-    (3 :mouse-button-right)
-    (4 :mouse-wheel-up)
-    (5 :mouse-wheel-down)
-    (t :mouse-button-unknown)))
-
-(defmacro fsv (object &rest args)
-  (do ((args (rest args) (rest args))
-       (object #1=`(foreign-slot-value ,object ,(first args) ,(second args)) #1#))
-      ((endp (rest args)) object)))
-
-(defun sym<-event (event) (fsv event 'keyboard-event 'keysym 'sym))
-(defun event-type (event) (foreign-enum-keyword 'event-type (fsv event 'event 'type)))
-(defun button<-event (event) (foreign-slot-value event 'button-event 'button))
-
-(let ((event (foreign-alloc 'event)))
-  (defun poll-event ()
-    (declare (optimize speed))
-    (when (%poll-event event)
-      (acase (event-type event)
-	(:keydown (values (sym<-event event) t))
-	(:keyup (values (sym<-event event) nil))
-	(:mousemotion :mouse-motion)
-	(:mousebuttondown (values (mouse-button-keyword event) t))
-	(:mousebuttonup (values (mouse-button-keyword event) nil))
-	(t it))))
-  (defun inspect-last-event () event))
 
 (declaim (inline %get-mouse-state get-mouse-state %show-cursor warp-mouse))
 (defcfun ("SDL_GetMouseState" %get-mouse-state) :uint8 (x :pointer) (y :pointer))
