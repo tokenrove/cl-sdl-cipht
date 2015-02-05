@@ -94,6 +94,19 @@
   (w :int)
   (h :int))
 
+(defmacro with-rect-from-list ((var list) &body body)
+  `(cffi:with-foreign-object (,var '(:struct rect))
+     (loop for slot in '(x y w h)
+           for value in ,list
+           do (setf (foreign-slot-value ,var '(:struct rect) slot) value))
+     ,@body))
+(defmacro with-rect-boa ((var x y w h) &body body)
+  `(cffi:with-foreign-object (,var '(:struct rect))
+     (loop for slot in '(x y w h)
+           for value in (list ,x ,y ,w ,h)
+           do (setf (foreign-slot-value ,var '(:struct rect) slot) value))
+     ,@body))
+
 (defcenum pixel-formats
   (:pixel-format-argb8888 #x16362004))
 
@@ -117,6 +130,19 @@
   (ashift :uint8)
   (refcount :int)
   (next :pointer))                      ; to :struct pixel-format
+
+
+(defcfun ("SDL_AllocFormat" alloc-format)
+    (:pointer (:struct pixel-format))
+  (format pixel-formats))
+(defcfun ("SDL_FreeFormat" free-format)
+    :void
+  (format (:pointer (:struct pixel-format))))
+
+(defmacro with-format ((var format) &body body)
+  `(let ((,var (alloc-format ,format)))
+     (unwind-protect (progn ,@body)
+       (free-format ,var))))
 
 (defcenum surface-flags
   (:software-surface #x0)
@@ -200,12 +226,15 @@
 
 (defcfun ("SDL_RenderPresent" render-present) :void (renderer renderer))
 
-(defcfun ("SDL_RenderCopy" render-copy)
+(defcfun ("SDL_RenderCopy" %render-copy)
     success?
   (renderer renderer)
   (texture texture)
   (srcrect (:pointer (:struct rect)))
   (dstrect (:pointer (:struct rect))))
+
+(defun render-copy (renderer texture srcrect dstrect)
+  (%render-copy renderer texture (null<-nil srcrect) (null<-nil dstrect)))
 
 (defcfun ("SDL_CreateRGBSurface" %create-rgb-surface)
     (:pointer (:struct surface))
@@ -220,7 +249,7 @@
 
 (defun create-rgb-surface (width height format)
   (with-foreign-slots ((bits-per-pixel rmask gmask bmask amask) format (:struct pixel-format))
-    (maybe-null-ptr (%create-rgb-surface 0 width height bits-per-pixel rmask gmask bmask amask))))
+    (nil<-null (%create-rgb-surface 0 width height bits-per-pixel rmask gmask bmask amask))))
 
 (defcfun ("SDL_FreeSurface" free-surface)
     :void
@@ -231,6 +260,16 @@
   (surface (:pointer (:struct surface)))
   (palette (:pointer (:struct palette))))
 
+(defun palette-of (surface)
+  (let ((format (foreign-slot-value surface '(:struct surface) 'format)))
+    (with-foreign-slots ((palette) format (:struct pixel-format))
+      (nil<-null palette))))
+
+(defun width-of (surface)
+  (foreign-slot-value surface '(:struct surface) 'w))
+(defun height-of (surface)
+  (foreign-slot-value surface '(:struct surface) 'h))
+
 (defcfun ("SDL_LockSurface" lock-surface)
     success?
   (surface (:pointer (:struct surface))))
@@ -238,24 +277,50 @@
     success?
   (surface (:pointer (:struct surface))))
 
+(defmacro with-locked-surface ((surface) &body body)
+  `(unwind-protect
+        (progn
+          (lock-surface ,surface)
+          ,@body)
+     (unlock-surface ,surface)))
+
+(defun draw-pixel (surface x y color)
+  "Assumes SURFACE is already locked."
+  (with-foreign-slots ((pixels pitch format) surface (:struct surface))
+    (destructuring-bind (type adjusted-pitch)
+        (ecase (foreign-slot-value format '(:struct pixel-format) 'bits-per-pixel)
+          (1 (list :uint8 pitch))
+          (2 (list :uint16 (ash pitch -1)))
+          (4 (list :uint32 (ash pitch -2))))
+      (setf (mem-aref pixels type (+ x (* y adjusted-pitch))) color))))
+
 (defcfun ("SDL_SetColorKey" set-color-key)
     success?
   (surface (:pointer (:struct surface)))
-  (flag surface-flags)
+  (flag :boolean)
   (key :uint32))
 
-(defcfun ("SDL_UpperBlit" blit-surface)
+(defcfun ("SDL_UpperBlit" %blit-surface)
     success?
   (src (:pointer (:struct surface)))
   (src-rect (:pointer (:struct rect)))
   (dst (:pointer (:struct surface)))
   (dst-rect (:pointer (:struct rect))))
 
-(defcfun ("SDL_FillRect" fill-rect)
+(defun blit-surface (src src-rect dst x y)
+  (with-foreign-object (dst-rect '(:struct rect))
+    (setf (foreign-slot-value dst-rect '(:struct rect) 'x) x
+          (foreign-slot-value dst-rect '(:struct rect) 'y) y)
+    (%blit-surface src (null<-nil src-rect) dst dst-rect)))
+
+(defcfun ("SDL_FillRect" %fill-rect)
     success?
   (dst (:pointer (:struct surface)))
   (rect (:pointer (:struct rect)))
   (color :uint32))
+
+(defun fill-rect (dst rect color)
+  (%fill-rect dst (null<-nil rect) color))
 
 (defcenum texture-access-flags
   (:texture-access-static)
@@ -275,12 +340,20 @@
   (renderer renderer)
   (surface (:pointer (:struct surface))))
 
-(defcfun ("SDL_UpdateTexture" update-texture)
+(defcfun ("SDL_UpdateTexture" %update-texture)
     success?
   (texture texture)
   (rect (:pointer (:struct rect)))
   (pixels :pointer)
   (pitch :int))
+(defun update-texture (texture rect pixels pitch)
+  (%update-texture texture (null<-nil rect) pixels pitch))
+(defun update-texture-from-surface (texture rect surface)
+  "Per UPDATE-TEXTURE, but get PIXELS and PITCH from SURFACE."
+  (with-foreign-slots ((pixels pitch) surface (:struct surface))
+    (update-texture texture rect pixels pitch)))
+
+(defcfun ("SDL_DestroyTexture" destroy-texture) :void (texture texture))
 
 ;;;; EVENTS
 
@@ -379,8 +452,10 @@
 
 (declaim (inline pump-events poll-event event-type wait-event event-state))
 (defcfun ("SDL_PumpEvents" pump-events) :void)
-(defcfun ("SDL_PollEvent" poll-event) success? (event (:pointer (:union event))))
-(defcfun ("SDL_WaitEvent" wait-event) success? (event (:pointer (:union event))))
+;; True if there are more events
+(defcfun ("SDL_PollEvent" poll-event) :boolean (event (:pointer (:union event))))
+;; Should signal a condition if return value is 0
+(defcfun ("SDL_WaitEvent" wait-event) :int (event (:pointer (:union event))))
 (defcenum event-states
   (:sdl-ignore 0)
   (:sdl-enable 1)
@@ -396,6 +471,13 @@
                                 '(:union event)
                                 'type)))
    (foreign-enum-keyword 'event-type sv :errorp nil)))
+
+(defun event-keysym (event)
+  (let ((keysym
+          (foreign-slot-value (mem-ref event '(:pointer (:struct keyboard-event)))
+                      '(:struct keyboard-event)
+                      'keysym)))
+    (foreign-slot-value keysym '(:struct keysym) 'sym)))
 
 (declaim (inline get-mod-state %get-mod-state set-mod-state))
 (defcfun ("SDL_GetModState" get-mod-state) mod)

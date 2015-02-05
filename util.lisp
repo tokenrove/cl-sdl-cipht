@@ -5,7 +5,11 @@
           :key (alexandria:curry #'foreign-enum-value type)
           :initial-value 0))
 
-(defun maybe-null-ptr (ptr) (unless (null-pointer-p ptr) ptr))
+;; Obviously we should use a type translator instead of calling these
+;; manually, but I didn't want to spend the extra time wrangling with
+;; define-parse-method and so on.
+(defun nil<-null (ptr) (unless (null-pointer-p ptr) ptr))
+(defun null<-nil (value) (or value (null-pointer)))
 
 (define-foreign-type success? ()
   ()

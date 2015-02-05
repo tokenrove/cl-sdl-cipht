@@ -6,7 +6,12 @@
    #:init #:quit #:with-init
 
    ;; VIDEO
-   #:surface #:rect #:pixel-format #:palette
+   #:rect #:color #:pixel-format #:palette #:success?
+   #:surface #:window #:texture #:renderer
+
+   #:with-format
+   #:with-rect-from-list
+   #:with-rect-boa
 
    #:with-window-and-renderer
    #:render-set-logical-size
@@ -18,25 +23,33 @@
    #:create-rgb-surface
    #:free-surface
    #:set-color-key
-   #:lock-surface
-   #:unlock-surface
+   #:with-locked-surface
    #:blit-surface
    #:fill-rect
+   #:draw-pixel
+   #:set-surface-palette
+   #:palette-of
+   #:width-of
+   #:height-of
 
    #:create-texture
    #:create-texture-from-surface
    #:update-texture
+   #:update-texture-from-surface
+   #:destroy-texture
 
    ;; TIMER
    #:get-ticks #:delay
 
    ;; EVENT
    #:pump-events #:poll-event #:wait-event
-   #:with-event #:event-type
+   #:with-event
+
+   #:event-type #:event-keysym
+
    #:get-mouse-state #:warp-mouse-in-window
    #:get-mod-state #:set-mod-state
-   #:show-cursor #:hide-cursor
-   ))
+   #:show-cursor #:hide-cursor))
 
 (defpackage #:net.cipht/sdl2-image
   (:nicknames #:sdl-image)
