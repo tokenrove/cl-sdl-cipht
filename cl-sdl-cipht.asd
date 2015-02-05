@@ -10,4 +10,5 @@
      (:file "util")
      (:file "keys")
      (:file "sdl")
-     (:file "image")))
+     (:file "image")
+     (:file "ttf")))

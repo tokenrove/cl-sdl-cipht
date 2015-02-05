@@ -58,3 +58,12 @@
   (:export #:init #:quit #:with-init
            #:load #:load-texture
            #:save-png))
+
+(defpackage #:net.cipht/sdl2-ttf
+  (:nicknames #:sdl-ttf)
+  (:use #:cl #:cffi)
+  (:export #:with-init
+           #:with-font
+           #:render-text-solid
+           #:render-text-blended
+           #:render-text-shaded))
