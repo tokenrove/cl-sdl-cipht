@@ -1,13 +1,13 @@
 ;;;; -*- Lisp -*-
 
-(defpackage #:sdl-system (:use #:cl #:asdf))
-(in-package #:sdl-system)
+(in-package :asdf-user)
 
-(defsystem sdl
+(defsystem cl-sdl-cipht
     :depends-on (:cffi :alexandria)
     :serial t
     :components
     ((:file "package")
      (:file "util")
-     (:file "sdl")))
-
+     (:file "keys")
+     (:file "sdl")
+     (:file "image")))

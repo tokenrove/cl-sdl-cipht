@@ -1,11 +1,11 @@
 
-(in-package :cipht/sdl)
+(in-package :net.cipht/sdl2)
 
-(define-foreign-library sdl
-  (:unix (:or "libSDL-1.2.so.0" "libSDL"))
-  (:windows "SDL")
-  (t (:default "libSDL")))
-(use-foreign-library sdl)
+(define-foreign-library sdl2
+  (:unix (:or "libSDL2-2.0.so" "libSDL2"))
+  (:windows "SDL2")
+  (t (:default "libSDL2")))
+(use-foreign-library sdl2)
 
 ;;;; INITIALIZATION
 
@@ -13,13 +13,15 @@
   (:init-timer #x00000001)
   (:init-audio #x00000010)
   (:init-video #x00000020)
-  (:init-cdrom #x00000100)
   (:init-joystick #x00000200)
+  (:init-haptic #x00001000)
+  (:init-game-controller #x00002000)
+  (:init-events #x00004000)
   (:init-no-parachute #x00100000)	; Don't catch fatal signals
   (:init-event-thread #x01000000)	; Not supported on all OS's
   (:init-everything #x0000FFFF))
 
-(defcfun ("SDL_Init" init) :boolean (flags init-enum))
+(defcfun ("SDL_Init" init) success? (flags init-enum))
 (defcfun ("SDL_Quit" quit) :void)
 
 (defmacro with-init ((&optional (mask :init-everything)) &body body)
@@ -28,28 +30,21 @@
 
 ;;;; VIDEO
 
-(defcenum video-flags
-  ;; These are the currently supported flags for the SDL_surface
-  ;; Available for SDL_CreateRGBSurface() or SDL_SetVideoMode()
-  (:swsurface #x00000000)	  ; Surface is in system memory
-  (:hwsurface #x00000001)	  ; Surface is in video memory
-  (:asyncblit #x00000004)	  ; Use asynchronous blits if possible
-  ;; Available for SDL_SetVideoMode()
-  (:anyformat #x10000000)	  ; Allow any video depth/pixel-format
-  (:hwpalette #x20000000)	  ; Surface has exclusive palette
-  (:doublebuf #x40000000)	  ; Set up double-buffered video mode
-  (:fullscreen #x80000000)	 ; Surface is a full screen display
-  (:opengl #x00000002)		 ; Create an OpenGL rendering context
-  (:openglblit #x0000000A) ; Create an OpenGL rendering context and use it for blitting
-  (:resizable #x00000010)  ; This video mode may be resized
-  (:noframe #x00000020)	   ; No window caption or edge frame
-  ;; Used internally (read-only)
-  (:hwaccel #x00000100)		  ; Blit uses hardware acceleration
-  (:srccolorkey #x00001000)	  ; Blit uses a source color key
-  (:rleaccelok #x00002000)	  ; Private flag
-  (:rleaccel #x00004000)	  ; Surface is RLE encoded
-  (:srcalpha #x00010000)	  ; Blit uses source alpha blending
-  (:prealloc #x01000000))	  ; Surface uses preallocated memory
+(defcenum window-flags
+  (:window-fullscreen #x00000001)  ; fullscreen window
+  (:window_opengl #x00000002D)     ; window usable with OpenGL context
+  (:window-shown #x00000004)       ; window is visible
+  (:window-hidden #x00000008)      ; window is not visible
+  (:window-borderless #x00000010)  ; no window decoration
+  (:window-resizable #x00000020)   ; window can be resized
+  (:window-minimized #x00000040)   ; window is minimized
+  (:window-maximized #x00000080)   ; window is maximized
+  (:window-input-grabbed #x00000100)  ; window has grabbed input focus
+  (:window-input-focus #x00000200)    ; window has input focus
+  (:window-mouse-focus #x00000400)    ; window has mouse focus
+  (:window-fullscreen-desktop #x00001001)
+  (:window-foreign #x00000800)        ; window not created by SDL
+  (:window-allow-highdpi #x00002000)) ; window should be created in high-DPI mode if supported
 
 (defcenum gl-attribute
   :gl-red-size
@@ -68,200 +63,255 @@
   :gl-multisamplebuffers
   :gl-multisamplesamples
   :gl-accelerated-visual
-  :gl-swap-control)
+  :gl-retained-backing
+  :gl-context-major-version
+  :gl-context-minor-version
+  :gl-context-egl
+  :gl-context-flags
+  :gl-context-profile-mask
+  :gl-share-with-current-context
+  :gl-framebuffer-srgb-capable)
 
-(defcstruct pixel-format
-  (palette :pointer)
-  (bits-per-pixel :uint8)
-  (bytes-per-pixel :uint8)
-  (r-loss :uint8)
-  (g-loss :uint8)
-  (b-loss :uint8)
-  (a-loss :uint8)
-  (r-shift :uint8)
-  (g-shift :uint8)
-  (b-shift :uint8)
-  (a-shift :uint8)
-  (r-mask :uint32)
-  (g-mask :uint32)
-  (b-mask :uint32)
-  (a-mask :uint32)
-  (colorkey :uint32)
-  (alpha  :uint8))
+(defcstruct color
+  (r :uint8)
+  (g :uint8)
+  (b :uint8)
+  (a :uint8))
 
-(defcstruct rect
-  (x :int16)
-  (y :int16)
-  (w :uint16)
-  (h :uint16))
-
-(defcstruct surface
-  (flags :uint32)
-  (format :pointer)
-  (w :int)
-  (h :int)
-  (pitch :uint16)
-  (pixels :pointer)
-  (offset :int)
-  (hwdata :pointer)
-  (clip-rect rect)
-  (unused1 :uint32)
-  (map :pointer)
-  (format-version :uint)
+(defcstruct palette
+  (ncolors :int)
+  (colors (:pointer (:struct color)))
+  (version :uint32)
   (refcount :int))
 
-(defcfun ("SDL_ListModes" %list-modes) :pointer (format :pointer) (flags :uint32))
+(defcstruct point
+  (x :int)
+  (y :int))
 
-(defun list-modes (flags &key (format (null-pointer)))
-  (let ((modes (%list-modes format (expand-enum-flags 'video-flags flags))))
-    (if (= #xffffffff (pointer-address modes)) nil
-	(loop for i from 0
-	      for mode = (mem-aref modes :pointer i)
-	      while (and mode (not (null-pointer-p mode)))
-	      collect (with-foreign-slots ((w h) mode rect) (list w h))))))
+(defcstruct rect
+  (x :int)
+  (y :int)
+  (w :int)
+  (h :int))
 
-(defcfun ("SDL_SetVideoMode" %set-video-mode) :pointer (width :int) (height :int) (bpp :int) (flags :uint32))
+(defcenum pixel-formats
+  (:pixel-format-argb8888 #x16362004))
 
-(defun set-video-mode (width height bpp flags)
-  (%set-video-mode width height bpp (expand-enum-flags 'video-flags flags)))
+(defcstruct pixel-format
+  (format pixel-formats)
+  (palette (:pointer (:struct palette)))
+  (bits-per-pixel :uint8)
+  (bytes-per-pixel :uint8)
+  (padding :uint8 :count 2)
+  (rmask :uint32)
+  (gmask :uint32)
+  (bmask :uint32)
+  (amask :uint32)
+  (rloss :uint8)
+  (gloss :uint8)
+  (bloss :uint8)
+  (aloss :uint8)
+  (rshift :uint8)
+  (gshift :uint8)
+  (bshift :uint8)
+  (ashift :uint8)
+  (refcount :int)
+  (next :pointer))                      ; to :struct pixel-format
 
-(declaim (inline gl-swap-buffers))
-(defcfun ("SDL_GL_SwapBuffers" gl-swap-buffers) :void)
-(defcfun ("SDL_GL_GetAttribute" gl-get-attribute) :boolean (attribute gl-attribute) (value :pointer))
-(defcfun ("SDL_GL_SetAttribute" gl-set-attribute) :boolean (attribute gl-attribute) (value :int))
+(defcenum surface-flags
+  (:software-surface #x0)
+  (:prealloc #x1)
+  (:rle-accel #x2)
+  (:dont-free #x4))
 
-(declaim (inline get-video-surface display-width display-height))
-(defcfun ("SDL_GetVideoSurface" get-video-surface) surface)
-(defun display-width () (foreign-slot-value (get-video-surface) 'surface 'w))
-(defun display-height () (foreign-slot-value (get-video-surface) 'surface 'h))
+(defcstruct surface
+  (flags surface-flags)
+  (format (:pointer (:struct pixel-format)))
+  (w :int)
+  (h :int)
+  (pitch :int)
+  (pixels :pointer)
+  (userdata :pointer)
+  (locked :int)
+  (lockdata :pointer)
+  (clip-rect (:struct rect))
+  (map :pointer)                        ; (:struct blit-map)
+  (refcount :int))
+
+(defcenum renderer-flags
+  (:renderer-software #x00000001) ; The renderer is a software fallback
+  (:renderer-accelerated #x00000002) ; The renderer uses hardware acceleration
+  (:renderer-presentvsync #x00000004) ; Present is synchronized with the refresh rate
+  (:renderer-targettexture #x00000008)) ; The renderer supports rendering to texture
+
+(defctype window :pointer)
+(defctype renderer :pointer)
+(defctype texture :pointer)
+
+(defcfun ("SDL_CreateWindowAndRenderer" create-window-and-renderer)
+    :int
+  (width :int)
+  (height :int)
+  (window-flags window-flags)
+  (window (:pointer window))
+  (renderer (:pointer renderer)))
+
+(defcfun ("SDL_DestroyWindow" destroy-window) :void (window window))
+(defcfun ("SDL_DestroyRenderer" destroy-renderer) :void (renderer renderer))
+
+(defmacro with-window-and-renderer ((window-var renderer-var width height flags) &body body)
+  (with-gensyms (window-ptr renderer-ptr)
+    `(with-foreign-objects ((,window-ptr 'window)
+                            (,renderer-ptr 'renderer))
+       (unwind-protect
+            (progn
+              (create-window-and-renderer ,width ,height ,flags
+                                          ,window-ptr
+                                          ,renderer-ptr)
+              (let ((,window-var (mem-ref ,window-ptr :pointer))
+                    (,renderer-var (mem-ref ,renderer-ptr :pointer)))
+                ,@body))
+         (destroy-renderer (mem-ref ,renderer-ptr :pointer))
+         (destroy-window (mem-ref ,window-ptr :pointer))))))
+
+(defcfun ("SDL_GetWindowID" get-window-id) :uint32 (window window))
+
+(defcfun ("SDL_SetWindowTitle" set-window-title)
+    :void
+  (window :pointer)
+  (title :string))
+
+(defcfun ("SDL_GetWindowTitle" get-window-title)
+    :string
+  (window :pointer))
+
+(defcfun ("SDL_RenderSetLogicalSize" render-set-logical-size)
+    success?
+  (renderer renderer)
+  (width :int)
+  (height :int))
+
+(defcfun ("SDL_SetRenderDrawColor" set-render-draw-color)
+    success?
+  (renderer renderer)
+  (r :uint8) (g :uint8) (b :uint8) (a :uint8))
+
+(defcfun ("SDL_RenderClear" render-clear) success? (renderer renderer))
+
+(defcfun ("SDL_RenderPresent" render-present) :void (renderer renderer))
+
+(defcfun ("SDL_RenderCopy" render-copy)
+    success?
+  (renderer renderer)
+  (texture texture)
+  (srcrect (:pointer (:struct rect)))
+  (dstrect (:pointer (:struct rect))))
+
+(defcfun ("SDL_CreateRGBSurface" %create-rgb-surface)
+    (:pointer (:struct surface))
+  (flags :uint32)
+  (width :int)
+  (height :int)
+  (depth :int)
+  (rmask :uint32)
+  (gmask :uint32)
+  (bmask :uint32)
+  (amask :uint32))
+
+(defun create-rgb-surface (width height format)
+  (with-foreign-slots ((bits-per-pixel rmask gmask bmask amask) format (:struct pixel-format))
+    (maybe-null-ptr (%create-rgb-surface 0 width height bits-per-pixel rmask gmask bmask amask))))
+
+(defcfun ("SDL_FreeSurface" free-surface)
+    :void
+  (surface (:pointer (:struct surface))))
+
+(defcfun ("SDL_SetSurfacePalette" set-surface-palette)
+    :int
+  (surface (:pointer (:struct surface)))
+  (palette (:pointer (:struct palette))))
+
+(defcfun ("SDL_LockSurface" lock-surface)
+    success?
+  (surface (:pointer (:struct surface))))
+(defcfun ("SDL_UnlockSurface" unlock-surface)
+    success?
+  (surface (:pointer (:struct surface))))
+
+(defcfun ("SDL_SetColorKey" set-color-key)
+    success?
+  (surface (:pointer (:struct surface)))
+  (flag surface-flags)
+  (key :uint32))
+
+(defcfun ("SDL_UpperBlit" blit-surface)
+    success?
+  (src (:pointer (:struct surface)))
+  (src-rect (:pointer (:struct rect)))
+  (dst (:pointer (:struct surface)))
+  (dst-rect (:pointer (:struct rect))))
+
+(defcfun ("SDL_FillRect" fill-rect)
+    success?
+  (dst (:pointer (:struct surface)))
+  (rect (:pointer (:struct rect)))
+  (color :uint32))
+
+(defcenum texture-access-flags
+  (:texture-access-static)
+  (:texture-access-streaming)
+  (:texture-access-target))
+
+(defcfun ("SDL_CreateTexture" create-texture)
+    texture
+  (renderer renderer)
+  (format pixel-formats)
+  (access texture-access-flags)
+  (width :int)
+  (height :int))
+
+(defcfun ("SDL_CreateTextureFromSurface" create-texture-from-surface)
+    texture
+  (renderer renderer)
+  (surface (:pointer (:struct surface))))
+
+(defcfun ("SDL_UpdateTexture" update-texture)
+    success?
+  (texture texture)
+  (rect (:pointer (:struct rect)))
+  (pixels :pointer)
+  (pitch :int))
 
 ;;;; EVENTS
 
-;; Keyboard key definitions: 8-bit ISO-8859-1 (Latin 1) encoding is used
-;; for printable keys (such as A-Z, 0-9 etc), and values above 256
-;; represent special (non-printable) keys (e.g. F1, Page Up etc).
-
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (define-foreign-type key-code-type ()
-    ()
-    (:actual-type :int)
-    (:simple-parser key-code))
-
-  (let ((symbol-table '((:unknown -1)
-			(:up 273)
-			(:down 274)
-			(:right 275)
-			(:left 276)
-			(:insert 277)
-			(:home 278)
-			(:end 279)
-			(:pageup 280)
-			(:pagedown 281)
-			(:f1 282)
-			(:f2 283)
-			(:f3 284)
-			(:f4 285)
-			(:f5 286)
-			(:f6 287)
-			(:f7 288)
-			(:f8 289)
-			(:f9 290)
-			(:f10 291)
-			(:f11 292)
-			(:f12 293)
-			(:f13 294)
-			(:f14 295)
-			(:f15 296)
-			(:numlock 300)
-			(:capslock 301)
-			(:scrollock 302)
-			(:rshift 303)
-			(:lshift 304)
-			(:rctrl 305)
-			(:lctrl 306)
-			(:ralt 307)
-			(:lalt 308)
-			(:rmeta 309)
-			(:lmeta 310)
-			(:lsuper 311)
-			(:rsuper 312)
-			(:mode 313)
-			(:compose 314)
-			(:help 315)
-			(:print 316)
-			(:sysreq 317)
-			(:break 318)
-			(:menu 319))))
-    (defmethod expand-to-foreign (value (type key-code-type))
-      `(cl:cond ((characterp ,value) (char-code ,value))
-		((symbolp ,value) (ecase ,value
-				    ,@symbol-table))
-		(t ,value)))
-    (defmethod translate-to-foreign (value (type key-code-type))
-      (cl:cond ((characterp value) (char-code value))
-		((symbolp value) (second (find value symbol-table :key #'car)))
-		(t value)))
-    (defmethod translate-from-foreign (value (type key-code-type))
-      (if-let (it (find value symbol-table :key #'second)) ;; XXX probably doesn't work where fixnums aren't EQL
-	(first it)
-	(code-char value)))
-    (defmethod expand-from-foreign (value (type key-code-type))
-      `(case ,value
-	 ,@(mapcar #'reverse symbol-table) ;; XXX probably doesn't work where fixnums aren't EQL
-	 (t (code-char ,value))))))
-
-(defcenum mod
-  (:none #x0000)
-  (:lshift #x0001)
-  (:rshift #x0002)
-  (:lctrl #x0040)
-  (:rctrl #x0080)
-  (:lalt #x0100)
-  (:ralt #x0200)
-  (:lmeta #x0400)
-  (:rmeta #x0800)
-  (:num #x1000)
-  (:caps #x2000)
-  (:mode #x4000)
-  (:reserved #x800)
-  (:ctrl #.(logior #x40 #x80))
-  (:shift #.(logior #x1 #x2))
-  (:alt #.(logior #x100 #x200))
-  (:meta #.(logior #x400 #x800)))
-
 (defcenum event-type
   (:noevent 0)			  ; Unused (do not remove)
-  :activeevent			  ; Application loses/gains visibility
-  :keydown			  ; Keys pressed
-  :keyup			  ; Keys released
-  :mousemotion			  ; Mouse moved
-  :mousebuttondown		  ; Mouse button pressed
-  :mousebuttonup		  ; Mouse button released
-  :joyaxismotion		  ; Joystick axis motion
-  :joyballmotion		  ; Joystick trackball motion
-  :joyhatmotion			  ; Joystick hat position change
-  :joybuttondown		  ; Joystick button pressed
-  :joybuttonup			  ; Joystick button released
-  :quit				  ; User-requested quit
-  :syswmevent			  ; System specific event
-  :event-reserveda		  ; Reserved for future use..
-  :event-reservedb		  ; Reserved for future use..
-  :videoresize			  ; User resized video mode
-  :videoexpose			  ; Screen needs to be redrawn
-  :event-reserved2		  ; Reserved for future use..
-  :event-reserved3		  ; Reserved for future use..
-  :event-reserved4		  ; Reserved for future use..
-  :event-reserved5		  ; Reserved for future use..
-  :event-reserved6		  ; Reserved for future use..
-  :event-reserved7		  ; Reserved for future use..
-  ;; Events SDL-USEREVENT through SDL-MAXEVENTS-1 are for your use
-  (:userevent 24)
-  (:numevents 32))
-
-(defcstruct active-event
-  (type :uint8)
-  (gain :uint8)
-  (state :uint8))
+  (:quit #x100)                   ; User-requested quit
+  (:window-event #x200)           ; Window state change
+  (:syswm-event #x201)            ; System-specific event
+  (:key-down #x300)               ; Keys pressed
+  :key-up			  ; Keys released
+  :text-editing
+  :text-input
+  (:mouse-motion #x400)           ; Mouse moved
+  :mouse-button-down		  ; Mouse button pressed
+  :mouse-button-up		  ; Mouse button released
+  :mouse-wheel
+  (:joyaxismotion #x600)          ; Joystick axis motion
+  :joy-ball-motion		  ; Joystick trackball motion
+  :joy-hat-motion                 ; Joystick hat position change
+  :joy-button-down		  ; Joystick button pressed
+  :joy-button-up                  ; Joystick button released
+  :joy-device-added
+  :joy-device-removed
+  (:controller-axis-motion #x650)
+  :controller-button-down
+  :controller-button-up
+  :controller-device-added
+  :controller-device-removed
+  :controller-device-remapped
+  ;; Events SDL-USEREVENT through SDL-LASTEVENT are for your use
+  (:userevent #x8000))
 
 (defcstruct keysym
   (scancode :uint8)
@@ -270,60 +320,42 @@
   (unicode :uint16))
 
 (defcstruct keyboard-event
-  (type :uint8)
-  (which :uint8)
+  (type :uint32)
+  (timestamp :uint32)
+  (window-id :uint32)
   (state :uint8)
-  (keysym keysym))
+  (repeat :uint8)
+  (padding :uint8 :count 2)
+  (keysym (:struct keysym)))
 
-(defcstruct motion-event
-  (type :uint8)
-  (which :uint8)
-  (state :uint8)
-  (x :uint16)
-  (y :uint16)
-  (xrel :int16)
-  (yrel :int16))
+(defcstruct mouse-motion-event
+  (type :uint32)
+  (timestamp :uint32)
+  (window-id :uint32)
+  (which :uint32)
+  (state :uint32)
+  (x :int32)
+  (y :int32)
+  (xrel :int32)
+  (yrel :int32))
 
-(defcstruct button-event
-  (type :uint8)
-  (which :uint8)
+(defcstruct mouse-button-event
+  (type :uint32)
+  (timestamp :uint32)
+  (window-id :uint32)
+  (which :uint32)
   (button :uint8)
   (state :uint8)
-  (x :uint16)
-  (y :uint16))
-
-(defcstruct joy-axis-event
-  (type :uint8)
-  (which :uint8)
-  (axis :uint8)
-  (value :int16))
-
-(defcstruct joy-button-event
-  (type :uint8)
-  (which :uint8)
-  (button :uint8)
-  (state :uint8))
-
-(defcstruct joy-hat-event
-  (type :uint8)
-  (which :uint8)
-  (hat :uint8)
-  (value :uint8))
-
-(defcstruct joy-ball-event
-  (type :uint8)
-  (which :uint8)
-  (ball :uint8)
-  (xrel :int16)
-  (yrel :int16))
-
-(defcstruct sys-wm-event
-  (type :uint8)
-  (msg :pointer))
+  (clicks :uint8)
+  (padding :uint8)
+  (x :int32)
+  (y :int32))
 
 (defcstruct user-event
-  (type :uint8)
-  (code :int)
+  (type :uint32)
+  (timestamp :uint32)
+  (window-id :uint32)
+  (code :int32)
   (data1 :pointer)
   (data2 :pointer))
 
@@ -332,53 +364,38 @@
   (w :int)
   (h :int))
 
+(defcstruct common-event
+  (type :uint32)
+  (timestamp :uint32))
+
 (defcunion event
-  (type :uint8)
-  (active active-event)
-  (key keyboard-event)
-  (motion motion-event)
-  (button button-event)
-  (jaxis joy-axis-event)
-  (jball joy-ball-event)
-  (jhat joy-hat-event)
-  (jbutton joy-button-event)
-  (resize resize-event)
-  ;;(expose expose-event) ; no content
-  ;;(quit quit-event) ; no content
-  (user user-event)
-  (syswm sys-wm-event))
+  (type :uint32)
+  (common (:struct common-event))
+  (key (:struct keyboard-event))
+  (motion (:struct mouse-motion-event))
+  (button (:struct mouse-button-event))
+  (user (:struct user-event))
+  (padding :uint8 :count 56))
 
 (declaim (inline pump-events poll-event event-type wait-event event-state))
 (defcfun ("SDL_PumpEvents" pump-events) :void)
-(defcfun ("SDL_PollEvent" poll-event) :boolean (event :pointer))
-(defcfun ("SDL_WaitEvent" wait-event) :boolean (event :pointer))
-(defcfun ("SDL_EventState" event-state) :uint8 (type :uint8) (state :int))
+(defcfun ("SDL_PollEvent" poll-event) success? (event (:pointer (:union event))))
+(defcfun ("SDL_WaitEvent" wait-event) success? (event (:pointer (:union event))))
+(defcenum event-states
+  (:sdl-ignore 0)
+  (:sdl-enable 1)
+  (:sdl-query -1))
+(defcfun ("SDL_EventState" event-state) :uint8 (type :uint32) (state event-states))
 
-(defmacro event-loop ((event-var) &body body)
-  `(with-foreign-object (,event-var 'event)
-     (declare (dynamic-extent ,event-var))
-     (block event-loop
-       (loop
-	 (sdl:pump-events)
-	 ,@body
-	   (sdl:gl-swap-buffers)))))
+(defmacro with-event ((event-variable) &body body)
+  `(with-foreign-object (,event-variable '(:union event))
+     ,@body))
 
 (defun event-type (event)
-  (foreign-enum-keyword 'event-type (foreign-slot-value event 'event 'type) :errorp nil))
-
-(defcfun ("SDL_EnableKeyRepeat" enable-key-repeat) :boolean (delay :int) (interval :int))
-(defun disable-key-repeat () (enable-key-repeat 0 0))
-
-(declaim (inline %get-key-state get-key-state key-pressed?))
-(defcfun ("SDL_GetKeyState" %get-key-state) :pointer (numkeys :pointer))
-
-(defun get-key-state ()
-  (with-foreign-object (n :int)
-    (let ((keys (%get-key-state n)))
-      (values keys (mem-ref n :int)))))
-
-(defun key-pressed? (sym)
-  (/= 0 (mem-aref (%get-key-state (null-pointer)) :uint8 (convert-to-foreign sym 'key-code))))
+  (let ((sv (foreign-slot-value (mem-ref event '(:pointer (:union event)))
+                                '(:union event)
+                                'type)))
+   (foreign-enum-keyword 'event-type sv :errorp nil)))
 
 (declaim (inline get-mod-state %get-mod-state set-mod-state))
 (defcfun ("SDL_GetModState" get-mod-state) mod)
@@ -398,16 +415,11 @@
 (defun show-cursor () (%show-cursor 1))
 (defun hide-cursor () (%show-cursor 0))
 
-(defcfun ("SDL_WarpMouse" warp-mouse) :void (x :uint16) (y :uint16))
-
-(defcfun ("SDL_NumJoysticks" num-joysticks) :int)
-(defcfun ("SDL_JoystickName" joystick-name) :string (index :int))
-(defcfun ("SDL_JoystickOpen" joystick-open) :pointer (index :int))
-(defcfun ("SDL_JoystickClose" joystick-close) :void (joystick :pointer))
-(defcfun ("SDL_JoystickUpdate" joystick-update) :void)
-(defcfun ("SDL_JoystickGetAxis" joystick-get-axis) :int16 (joystick :pointer) (axis :int))
-(defcfun ("SDL_JoystickGetButton" joystick-get-button) :boolean (joystick :pointer) (button :int))
-
+(defcfun ("SDL_WarpMouseInWindow" warp-mouse-in-window)
+    :void
+  (window window)
+  (x :int)
+  (y :int))
 
 ;;;; TIMER
 

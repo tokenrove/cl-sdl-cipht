@@ -1,8 +1,16 @@
-(in-package #:cipht/sdl)
+(in-package #:net.cipht/sdl2)
 
-;; from cl-opengl
-(defun make-bitfield (enum-name attributes)
-  (apply #'logior 0 (mapcar (lambda (x) (if x (foreign-enum-value enum-name x) 0)) attributes)))
-(defun expand-enum-flags (type flags)
-  (make-bitfield type (if (atom flags) (list flags) flags)))
+(defun make-bitfield (type flags)
+  (reduce #'logior (if (atom flags) (list flags) flags)
+          :key (alexandria:curry #'foreign-enum-value type)
+          :initial-value 0))
 
+(defun maybe-null-ptr (ptr) (unless (null-pointer-p ptr) ptr))
+
+(define-foreign-type success? ()
+  ()
+  (:actual-type :int)
+  (:simple-parser success?))
+
+(defmethod expand-to-foreign (value (type success?)) `(if ,value 0 -1))
+(defmethod expand-from-foreign (value (type success?)) `(zerop ,value))
