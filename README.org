@@ -1,0 +1,9 @@
+
+* Don't use this
+
+You don't want to use this.  You probably meant to find [[https://github.com/lispgames/cl-sdl2][cl-sdl2]] or
+similar.
+
+These are an updated hack of ancient bindings I wrote for a couple of
+ad hoc applications, at a time when the original cl-sdl was UFFI-only
+and kind of unusable.
