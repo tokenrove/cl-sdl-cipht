@@ -7,7 +7,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (define-foreign-type key-code-type ()
     ()
-    (:actual-type :int)
+    (:actual-type :int32)
     (:simple-parser key-code))
 
   (let ((symbol-table '((:unknown -1)

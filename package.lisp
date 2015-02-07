@@ -31,6 +31,7 @@
    #:palette-of
    #:width-of
    #:height-of
+   #:format-of
 
    #:create-texture
    #:create-texture-from-surface

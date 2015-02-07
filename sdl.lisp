@@ -260,10 +260,12 @@
   (surface (:pointer (:struct surface)))
   (palette (:pointer (:struct palette))))
 
+(defun format-of (surface)
+  (foreign-slot-value surface '(:struct surface) 'format))
+
 (defun palette-of (surface)
-  (let ((format (foreign-slot-value surface '(:struct surface) 'format)))
-    (with-foreign-slots ((palette) format (:struct pixel-format))
-      (nil<-null palette))))
+  (with-foreign-slots ((palette) (format-of surface) (:struct pixel-format))
+    (nil<-null palette)))
 
 (defun width-of (surface)
   (foreign-slot-value surface '(:struct surface) 'w))
@@ -289,9 +291,9 @@
   (with-foreign-slots ((pixels pitch format) surface (:struct surface))
     (destructuring-bind (type adjusted-pitch)
         (ecase (foreign-slot-value format '(:struct pixel-format) 'bits-per-pixel)
-          (1 (list :uint8 pitch))
-          (2 (list :uint16 (ash pitch -1)))
-          (4 (list :uint32 (ash pitch -2))))
+          (8 (list :uint8 pitch))
+          (16 (list :uint16 (ash pitch -1)))
+          (32 (list :uint32 (ash pitch -2))))
       (setf (mem-aref pixels type (+ x (* y adjusted-pitch))) color))))
 
 (defcfun ("SDL_SetColorKey" set-color-key)
@@ -387,10 +389,11 @@
   (:userevent #x8000))
 
 (defcstruct keysym
-  (scancode :uint8)
-  (sym key-code)
-  (mod mod)
-  (unicode :uint16))
+  (scancode :int)
+  ;; (sym key-code)
+  (sym :int32)
+  (mod :uint16)
+  (unicode :uint32))
 
 (defcstruct keyboard-event
   (type :uint32)
@@ -467,17 +470,13 @@
      ,@body))
 
 (defun event-type (event)
-  (let ((sv (foreign-slot-value (mem-ref event '(:pointer (:union event)))
+  (let ((sv (foreign-slot-value event
                                 '(:union event)
                                 'type)))
    (foreign-enum-keyword 'event-type sv :errorp nil)))
 
 (defun event-keysym (event)
-  (let ((keysym
-          (foreign-slot-value (mem-ref event '(:pointer (:struct keyboard-event)))
-                      '(:struct keyboard-event)
-                      'keysym)))
-    (foreign-slot-value keysym '(:struct keysym) 'sym)))
+  (getf (foreign-slot-value event '(:struct keyboard-event) 'keysym) 'sym))
 
 (declaim (inline get-mod-state %get-mod-state set-mod-state))
 (defcfun ("SDL_GetModState" get-mod-state) mod)
