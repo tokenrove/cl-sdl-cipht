@@ -8,7 +8,10 @@
     :components
     ((:file "package")
      (:file "util")
-     (:file "keys")
      (:file "sdl")
+     (:file "video")
+     (:file "keys")
+     (:file "events")
+     (:file "timer")
      (:file "image")
      (:file "ttf")))

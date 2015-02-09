@@ -3,9 +3,10 @@
   (:nicknames #:sdl)
   (:use #:cl #:cffi #:alexandria)
   (:export
-   #:init #:quit #:with-init
+   #:init #:quit #:with-init)
 
-   ;; VIDEO
+  ;; VIDEO
+  (:export
    #:rect #:color #:pixel-format #:palette #:success?
    #:surface #:window #:texture #:renderer
 
@@ -28,21 +29,20 @@
    #:fill-rect
    #:draw-pixel
    #:set-surface-palette
-   #:palette-of
-   #:width-of
-   #:height-of
-   #:format-of
+   #:palette-of #:width-of #:height-of #:format-of #:pitch-of #:pixels-of
 
    #:create-texture
    #:create-texture-from-surface
    #:update-texture
    #:update-texture-from-surface
-   #:destroy-texture
+   #:destroy-texture)
 
-   ;; TIMER
-   #:get-ticks #:delay
+  ;; TIMER
+  (:export
+   #:get-ticks #:delay)
 
-   ;; EVENT
+  ;; EVENT
+  (:export
    #:pump-events #:poll-event #:wait-event
    #:with-event
 
