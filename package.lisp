@@ -23,6 +23,7 @@
 
    #:create-rgb-surface
    #:free-surface
+   #:convert-surface
    #:set-color-key
    #:with-locked-surface
    #:blit-surface

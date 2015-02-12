@@ -116,6 +116,12 @@
     :void
   (surface (:pointer (:struct surface))))
 
+(defcfun ("SDL_ConvertSurface" convert-surface)
+    (:pointer (:struct surface))
+  (source (:pointer (:struct surface)))
+  (format (:pointer (:struct pixel-format)))
+  (flags surface-flags))
+
 (defcfun ("SDL_SetSurfacePalette" set-surface-palette)
     :int
   (surface (:pointer (:struct surface)))
