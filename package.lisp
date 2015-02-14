@@ -13,6 +13,7 @@
    #:with-format
    #:with-rect-from-list
    #:with-rect-boa
+   #:map-rgba
 
    #:with-window-and-renderer
    #:render-set-logical-size

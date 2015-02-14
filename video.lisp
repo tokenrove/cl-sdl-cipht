@@ -75,6 +75,10 @@
      (unwind-protect (progn ,@body)
        (free-format ,var))))
 
+(defcfun ("SDL_MapRGBA" map-rgba) :uint32
+  (format (:pointer (:struct pixel-format)))
+  (r :uint8) (g :uint8) (b :uint8) (a :uint8))
+
 ;;; SURFACE
 
 (defcenum surface-flags
